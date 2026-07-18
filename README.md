@@ -142,6 +142,30 @@ The observation YAML files are generated runtime inputs for pyuvsim. They are
 derived from the loaded configuration; users do not maintain a second
 observation configuration.
 
-This repository stops at component visibility generation. Combining components
-into a mock observation and selecting a BayesEoR inference data vector belong in
-the downstream analysis.
+## Summing selected visibility products
+
+Visibility summation is explicit rather than part of the automatic simulation
+workflow. Pass exactly the products required for one analysis to
+`sum_visibility_files`:
+
+```python
+from bayeseor_data_generation import sum_visibility_files
+
+sum_visibility_files(
+    input_files=[
+        "data/h1c_band2/visibilities/eor/fov-12.9.uvh5",
+        "data/h1c_band2/visibilities/gsm/fov-30.uvh5",
+        "data/h1c_band2/visibilities/gleam_ateam/fov-30.uvh5",
+    ],
+    output_file="data/h1c_band2/visibilities/total/eor-12.9-fgs-30.uvh5",
+)
+```
+
+The helper loads each file as a PyUVData `UVData` object and uses
+`UVData.sum_vis`. PyUVData checks that the time, frequency, baseline,
+polarization and other visibility metadata are compatible before adding the
+complex visibility arrays. Existing outputs are protected unless
+`overwrite=True` is supplied.
+
+Selecting which component FoVs belong in a mock observation and selecting the
+final BayesEoR inference data vector remain downstream analysis choices.
