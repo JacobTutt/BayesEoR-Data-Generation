@@ -617,15 +617,55 @@ def preprocess(root: Path, eor_fov: float, foreground_fovs: list[float], overwri
         subprocess.run(command, check=True, env=env)
 
 
-def verify(root: Path, reference_root: Path, eor_fov: float, foreground_fovs: list[float]) -> None:
-    """Compare regenerated products with references; references are never inputs."""
+def _fractional_metrics(generated: np.ndarray, reference: np.ndarray) -> dict[str, float]:
+    """Return stable error metrics without dividing by reference values near zero."""
+    generated = np.asarray(generated)
+    reference = np.asarray(reference)
+    if generated.shape != reference.shape:
+        raise ValueError(f"shape mismatch: {generated.shape} != {reference.shape}")
+    finite = np.isfinite(generated) & np.isfinite(reference)
+    if not np.all(finite):
+        generated = generated[finite]
+        reference = reference[finite]
+    difference = np.abs(generated - reference)
+    reference_abs = np.abs(reference)
+    reference_l2 = np.linalg.norm(reference.ravel())
+    reference_rms = np.sqrt(np.mean(reference_abs**2))
+    scale = reference_abs.max(initial=0.0)
+    robust = reference_abs > scale * 1e-12
+    pointwise = difference[robust] / reference_abs[robust] if np.any(robust) else np.array([np.nan])
+    return {
+        "max_abs": float(difference.max(initial=0.0)),
+        "relative_l2": float(np.linalg.norm(difference.ravel()) / reference_l2) if reference_l2 else np.nan,
+        "rms_relative": float(np.sqrt(np.mean(difference**2)) / reference_rms) if reference_rms else np.nan,
+        "pointwise_p99": float(np.nanpercentile(pointwise, 99)),
+        "pointwise_max": float(np.nanmax(pointwise)),
+    }
+
+
+def _print_metrics(label: str, generated: np.ndarray, reference: np.ndarray) -> dict[str, float]:
+    metrics = _fractional_metrics(generated, reference)
+    values = " ".join(f"{key}={value:.6e}" for key, value in metrics.items())
+    print(f"  {label}: {values}")
+    return metrics
+
+
+def _sum_visibility_name(eor_fov: float, foreground_fov: float) -> str:
+    eor_label = fov_short_label(eor_fov)
+    fg_label = fov_short_label(foreground_fov)
+    if fg_label == eor_label:
+        return f"wn-gsm-ptsrc-fov-{fg_label}.uvh5"
+    return f"wn-fov-{eor_label}-gsm-ptsrc-fov-{fg_label}.uvh5"
+
+
+def _sky_pairs(root: Path, reference_root: Path, eor_fov: float, foreground_fovs: list[float]) -> list[tuple[Path, Path]]:
     pairs: list[tuple[Path, Path]] = [
         (white_noise_parent_path(root), white_noise_parent_path(reference_root)),
         (gsm_parent_path(root), gsm_parent_path(reference_root)),
         (ptsrc_parent_dir(root) / "gleam-like.skyh5", ptsrc_parent_dir(reference_root) / "gleam-like.skyh5"),
         (ptsrc_parent_dir(root) / "a-team.skyh5", ptsrc_parent_dir(reference_root) / "a-team.skyh5"),
     ]
-    for fov in [eor_fov, *foreground_fovs]:
+    for fov in dict.fromkeys([eor_fov, *foreground_fovs]):
         if fov == eor_fov:
             rel = Path("sims/sky-models/white-noise/nside-128/h1c-idr2/band2") / f"sigma-6.40mK-seed-92381923-fov-{fov_map_label(fov)}deg.skyh5"
             pairs.append((root / rel, reference_root / rel))
@@ -636,21 +676,105 @@ def verify(root: Path, reference_root: Path, eor_fov: float, foreground_fovs: li
             rel = relbase / f"fov-{fov_map_label(fov)}deg.skyh5"
             if (reference_root / rel).exists():
                 pairs.append((root / rel, reference_root / rel))
+    return pairs
+
+
+def _visibility_pairs(root: Path, reference_root: Path, eor_fov: float, foreground_fovs: list[float]) -> list[tuple[Path, Path]]:
+    relative_paths = [
+        _visibility_path(Path(), "white-noise", eor_fov),
+    ]
+    for fov in foreground_fovs:
+        relative_paths.extend(
+            [_visibility_path(Path(), component, fov) for component in ("gsm", "ptsrc")]
+        )
+        relative_paths.append(
+            Path("sims/airy/sum/h1c-idr2/band2/field1")
+            / _sum_visibility_name(eor_fov, fov)
+        )
+    return [
+        (root / relative_path, reference_root / relative_path)
+        for relative_path in relative_paths
+        if (reference_root / relative_path).exists()
+    ]
+
+
+def _processed_pairs(root: Path, reference_root: Path, eor_fov: float, foreground_fovs: list[float]) -> list[tuple[Path, Path]]:
+    relative_directory = Path("sims/airy/sum/h1c-idr2/band2/field1/proc")
+    pairs = []
+    for fov in foreground_fovs:
+        stem = Path(_sum_visibility_name(eor_fov, fov)).stem
+        pattern = f"{stem}-min-freq-157.23MHz-Nfreqs-39-Nbls-30-Ntimes-47-central-JD-2459999.10-pol-pI.npy"
+        relative_path = relative_directory / pattern
+        if (reference_root / relative_path).exists():
+            pairs.append((root / relative_path, reference_root / relative_path))
+    return pairs
+
+
+def verify(
+    root: Path,
+    reference_root: Path,
+    eor_fov: float,
+    foreground_fovs: list[float],
+    products: list[str],
+) -> None:
+    """Compare regenerated products with references; references are never inputs."""
+    from pyuvdata import UVData
 
     failures = 0
-    for generated_path, reference_path in pairs:
-        if not generated_path.exists() or not reference_path.exists():
-            print(f"MISSING {generated_path} or {reference_path}")
-            failures += 1
-            continue
-        generated = _sky_model_from_file(generated_path)
-        reference = _sky_model_from_file(reference_path)
-        same_components = generated.Ncomponents == reference.Ncomponents
-        same_freqs = np.allclose(generated.freq_array.value, reference.freq_array.value, rtol=0, atol=1e-8)
-        same_stokes = np.allclose(generated.stokes.value, reference.stokes.value, rtol=1e-12, atol=1e-10)
-        result = same_components and same_freqs and same_stokes
-        failures += int(not result)
-        print(f"{'PASS' if result else 'FAIL'} {generated_path.relative_to(root)}")
+    if "skies" in products:
+        for generated_path, reference_path in _sky_pairs(root, reference_root, eor_fov, foreground_fovs):
+            if not generated_path.exists() or not reference_path.exists():
+                print(f"MISSING {generated_path} or {reference_path}")
+                failures += 1
+                continue
+            generated = _sky_model_from_file(generated_path)
+            reference = _sky_model_from_file(reference_path)
+            same_components = generated.Ncomponents == reference.Ncomponents
+            generated_freqs = getattr(generated, "freq_array", None)
+            reference_freqs = getattr(reference, "freq_array", None)
+            same_freqs = (generated_freqs is None) == (reference_freqs is None)
+            if generated_freqs is not None and reference_freqs is not None:
+                same_freqs = np.allclose(generated_freqs.value, reference_freqs.value, rtol=0, atol=1e-8)
+            reference_stokes = generated.stokes.unit.to(reference.stokes.unit) * generated.stokes.value
+            same_stokes = np.allclose(reference_stokes, reference.stokes.value, rtol=1e-12, atol=1e-10)
+            result = same_components and same_freqs and same_stokes
+            failures += int(not result)
+            print(f"{'PASS' if result else 'FAIL'} SKY {generated_path.relative_to(root)}")
+            _print_metrics("stokes", reference_stokes, reference.stokes.value)
+
+    if "vis" in products:
+        for generated_path, reference_path in _visibility_pairs(root, reference_root, eor_fov, foreground_fovs):
+            if not generated_path.exists() or not reference_path.exists():
+                print(f"MISSING {generated_path} or {reference_path}")
+                failures += 1
+                continue
+            generated = UVData.from_file(generated_path)
+            reference = UVData.from_file(reference_path)
+            axes_match = all(
+                np.array_equal(getattr(generated, field), getattr(reference, field))
+                for field in ("time_array", "freq_array", "ant_1_array", "ant_2_array", "polarization_array")
+            )
+            data_match = np.allclose(generated.data_array, reference.data_array, rtol=1e-7, atol=1e-7)
+            result = axes_match and data_match
+            failures += int(not result)
+            print(f"{'PASS' if result else 'FAIL'} VIS {generated_path.relative_to(root)}")
+            _print_metrics("visibility", generated.data_array, reference.data_array)
+
+    if "processed" in products:
+        for generated_path, reference_path in _processed_pairs(root, reference_root, eor_fov, foreground_fovs):
+            if not generated_path.exists() or not reference_path.exists():
+                print(f"MISSING {generated_path} or {reference_path}")
+                failures += 1
+                continue
+            generated = np.load(generated_path, allow_pickle=True).item()
+            reference = np.load(reference_path, allow_pickle=True).item()
+            result = True
+            print(f"PROCESSED {generated_path.relative_to(root)}")
+            for field in ("data", "noise"):
+                metrics = _print_metrics(field, generated[field], reference[field])
+                result &= np.allclose(generated[field], reference[field], rtol=1e-7, atol=1e-7)
+            failures += int(not result)
+            print(f"{'PASS' if result else 'FAIL'} PROCESSED {generated_path.relative_to(root)}")
     if failures:
         raise SystemExit(f"{failures} regression comparison(s) failed")
 
@@ -679,6 +803,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("prepare", help="Run parents, cutouts, and obsparams from scratch.")
     check = subparsers.add_parser("verify", help="Regression-check against reference files.")
     check.add_argument("--reference-root", type=Path, required=True)
+    check.add_argument(
+        "--products", nargs="+", choices=["skies", "vis", "processed"],
+        default=["skies", "vis", "processed"],
+    )
     return parser
 
 
@@ -698,7 +826,13 @@ def main() -> None:
     elif args.stage == "preprocess":
         preprocess(root, args.eor_fov, args.foreground_fovs, args.overwrite)
     elif args.stage == "verify":
-        verify(root, args.reference_root.resolve(), args.eor_fov, args.foreground_fovs)
+        verify(
+            root,
+            args.reference_root.resolve(),
+            args.eor_fov,
+            args.foreground_fovs,
+            args.products,
+        )
 
 
 if __name__ == "__main__":

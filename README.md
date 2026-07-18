@@ -122,3 +122,17 @@ python generate.py \
 
 The reference directory is used only by `verify` and never by `prepare`,
 `simulate`, `sum`, or `preprocess`.
+
+For the full comparison on an Isambard compute node, select the product stage
+that has finished:
+
+```bash
+sbatch jobs/verify.sbatch \
+  --reference-root /projects/u6my/users/jacobtutt.u6my/BayesEoR/large-fov \
+  --products skies
+```
+
+The verifier reports maximum absolute error, relative L2 error, RMS-relative
+error, and the 99th-percentile and maximum pointwise fractional errors after
+excluding reference values below `1e-12` of the product's peak. Use
+`--products vis` or `--products processed` after those stages have completed.

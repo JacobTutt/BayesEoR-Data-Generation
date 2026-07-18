@@ -26,3 +26,13 @@ def test_frequency_axis():
 
 def test_no_reference_path_in_generation_defaults():
     assert "BayesEoR/large-fov" not in str(generate.default_output_root())
+
+
+def test_fractional_metrics():
+    reference = np.array([1.0, 2.0, 0.0, -4.0])
+    regenerated = np.array([1.0, 2.2, 0.0, -4.0])
+    metrics = generate._fractional_metrics(regenerated, reference)
+    assert np.isclose(metrics["max_abs"], 0.2)
+    assert np.isclose(metrics["relative_l2"], 0.2 / np.linalg.norm(reference))
+    assert np.isclose(metrics["rms_relative"], metrics["relative_l2"])
+    assert np.isclose(metrics["pointwise_max"], 0.1)
