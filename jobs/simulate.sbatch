@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=beor-pyuvsim
+#SBATCH --account=u6my
+#SBATCH --partition=workq
+#SBATCH --nodes=1
+#SBATCH --ntasks=4
+#SBATCH --cpus-per-task=18
+#SBATCH --mem=120G
+#SBATCH --gres=gpu:1
+#SBATCH --time=12:00:00
+#SBATCH --output=logs/simulate-%j.out
+
+set -euo pipefail
+repo_dir="${SLURM_SUBMIT_DIR}"
+mkdir -p "${repo_dir}/logs"
+source "${repo_dir}/venv/bin/activate"
+srun python "${repo_dir}/generate.py" "$@" simulate
