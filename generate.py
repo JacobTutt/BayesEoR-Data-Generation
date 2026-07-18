@@ -658,16 +658,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--foreground-fovs", type=float, nargs="+",
         default=[HISTORICAL_EOR_FOV_DEG, 30.0, 60.0, 90.0, 120.0],
     )
+    parser.add_argument(
+        "--components", nargs="+", choices=["white-noise", "gsm", "ptsrc"],
+        default=["white-noise", "gsm", "ptsrc"],
+        help="Components to run during the simulate stage.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     subparsers = parser.add_subparsers(dest="stage", required=True)
     subparsers.add_parser("parents", help="Generate all three full-sky parents from scratch.")
     subparsers.add_parser("cutouts", help="Select requested FoVs from newly generated parents.")
     subparsers.add_parser("obsparams", help="Write pyuvsim observation YAML files.")
-    sim = subparsers.add_parser("simulate", help="Run pyuvsim for selected components.")
-    sim.add_argument(
-        "--components", nargs="+", choices=["white-noise", "gsm", "ptsrc"],
-        default=["white-noise", "gsm", "ptsrc"],
-    )
+    subparsers.add_parser("simulate", help="Run pyuvsim for selected components.")
     subparsers.add_parser("sum", help="Sum EoR, GSM, and point-source visibilities.")
     subparsers.add_parser("preprocess", help="Create the historical 39x47 inference vectors.")
     subparsers.add_parser("prepare", help="Run parents, cutouts, and obsparams from scratch.")

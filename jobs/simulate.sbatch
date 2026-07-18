@@ -13,5 +13,6 @@
 set -euo pipefail
 repo_dir="${SLURM_SUBMIT_DIR}"
 mkdir -p "${repo_dir}/logs"
+module load cray-python/3.11.7
 source "${repo_dir}/venv/bin/activate"
 srun python "${repo_dir}/generate.py" "$@" simulate
