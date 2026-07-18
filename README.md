@@ -1,224 +1,145 @@
 # BayesEoR Data Generation
 
-A small, standalone guide to generating BayesEoR simulation data from scratch.
-It starts from a physical description of an observation and produces skyh5 sky
-models plus pyuvsim UVH5 visibilities. It does not import or modify the BayesEoR
-inference code, and copied historical simulations are not inputs.
+A standalone, reusable pipeline for generating the three sky components used in
+BayesEoR-style simulations and propagating them through a pyuvsim visibility
+calculation. It does not import or modify the BayesEoR inference code and does
+not require pre-generated sky or visibility products.
 
-## The workflow
-
-One YAML file describes the observation. The code is split only at genuine
-physical boundaries:
-
-- `eor.py` generates EoR maps.
-- `gsm.py` generates diffuse GSM maps.
-- `gleam_ateam.py` generates the statistical point-source+A-team maps.
-- `generate_skies.py` computes the central pointing once and calls those three
-  component generators.
-- `simulate.py` takes the generated maps and calculates their visibilities.
-
-The workflow is:
+## Repository layout
 
 ```text
-observation YAML
-    |
-    +-- telescope location, layout and beam
-    +-- start/end time and integration length
-    +-- frequency start, spacing and channel count
-    +-- HEALPix NSIDE
-    +-- EoR FoV(s)
-    +-- GSM FoV(s)
-    +-- GLEAM-like+A-team FoV(s)
-    |
-    v
-central observation time and zenith direction
-    |
-    v
-EoR, GSM and GLEAM-like+A-team skyh5 files
-    |
-    v
-simulate.py
-    |
-    v
-one pyuvsim observation YAML per sky file
-    |
-    v
-one UVH5 visibility file per component and FoV
+src/bayeseor_data_generation/
+  eor.py                 EoR-like white-noise sky generation
+  gsm.py                 diffuse GSM2008 sky generation
+  gleam_ateam.py         statistical GLEAM-like plus A-team generation
+  generate_skies.py      shared pointing and sky-generation workflow
+  simulate.py            pyuvsim observation and visibility workflow
+default_configs/
+  hex-37-14.6m.csv       example antenna layout
+  a_team.csv             fixed bright-source catalogue
+example_config.py        complete editable example configuration
+example_run.py           complete example workflow
 ```
 
-FoV values are full angular diameters. For example, a 30-degree FoV contains
-HEALPix pixel centres or point sources within 15 degrees of zenith. Zenith is
-calculated at the midpoint between `start_jd` and `end_jd`.
+Generated data, observation files, visibilities, machine environments, batch
+scripts and scheduler logs are deliberately not part of the repository.
 
-## Required inputs
+## Installation
 
-All required inputs are visible in `inputs/h1c_band2.yaml`.
+Clone the repository, create an isolated Python environment and install the
+package in editable mode:
 
-### Telescope
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+```
 
-| Input | Meaning |
-| --- | --- |
-| `antenna_layout` | CSV containing antenna numbers, beam IDs and ENU positions in metres |
-| `latitude_deg`, `longitude_deg`, `altitude_m` | Telescope location used both for the sky cut and pyuvsim |
-| `beam.type` | pyuvsim beam model; the historical example uses `airy` |
-| `beam.diameter_m` | Airy aperture diameter; the recovered historical value is 14.2 m |
-| `redundant_threshold_m` | pyuvsim tolerance for grouping redundant baselines |
+The dependency constraints in `pyproject.toml` retain the historical pyuvsim,
+pyuvdata and pyradiosky APIs used while developing this pipeline. Visibility
+simulation uses MPI through `mpi4py` and pyuvsim; an MPI implementation must
+therefore be available on the machine.
 
-The included `instrument/hex-37-14.6m.csv` is a 37-element hexagonal HERA-like
-layout with 14.6 m antenna separation. The separation and Airy aperture diameter
-are different quantities.
+## Running the example
 
-### Time axis
+Review `example_config.py`, especially the output directory, time and frequency
+axes, component FoVs and `SIMULATE_VISIBILITIES` switch. Then run:
 
-| Input | Historical example |
-| --- | ---: |
-| Start time | JD 2459999.067040411 |
-| End time | JD 2459999.127292119 |
-| Integration time | 21.511353650861533 s |
-| Result | 243 integrations |
+```bash
+python example_run.py
+```
 
-The central JD is used to decide which sky pixels and point sources fall inside
-each FoV. The full start/end range is passed to pyuvsim for the visibility
-simulation.
+The runner first calls `generate_skies(CONFIG)`. If
+`SIMULATE_VISIBILITIES = True`, it then passes the same configuration to
+`simulate_visibilities(CONFIG)`. This guarantees that the sky selection and
+visibility calculation use one observation definition.
 
-### Frequency axis
+The supplied configuration is the recovered HERA Band-2 example. It is a real,
+large simulation: 180 frequency channels, 243 time integrations, a 37-element
+layout, and foreground FoVs out to 120 degrees. For a quick trial, reduce the
+channel count, time range and FoV lists before running it.
 
-| Input | Historical example |
-| --- | ---: |
-| First channel | 150.29296875 MHz |
-| Channel spacing | 97.65625 kHz |
-| Number of channels | 180 |
-| Final channel | 167.7734375 MHz |
+Existing outputs are preserved. Set `OVERWRITE_EXISTING_FILES = True` in
+`example_config.py` only when existing products should be replaced.
 
-The same frequency array is used by the EoR and GSM sky cubes and by pyuvsim.
-Point-source fluxes are represented by reference fluxes and spectral indices;
-pyuvsim evaluates them at these frequencies.
+## Configuration
 
-### Sky fields
+`CONFIG` is a plain Python dictionary with four top-level sections:
 
-Each sky component has its own `fovs_deg` list. The supplied example requests:
+- `output_directory`: destination for all generated products.
+- `telescope`: antenna layout, geodetic location, beam and redundancy tolerance.
+- `time`: start/end Julian dates and integration time in seconds.
+- `frequency`: first channel, channel width and number of channels.
+- `sky`: common HEALPix NSIDE plus settings for each physical sky component.
 
-- EoR: 12.9080728652 degrees.
-- GSM: 12.9080728652, 30, 60, 90 and 120 degrees.
-- GLEAM-like+A-team: 12.9080728652, 30, 60, 90 and 120 degrees.
+FoVs are full angular diameters centred on zenith at the midpoint of the
+observation. For example, a 30-degree FoV retains pixels or point sources within
+15 degrees of zenith.
 
-Changing or adding an FoV requires editing only this list. There are no FoVs
-hard-coded into the workflow.
+Paths in the example are constructed relative to `example_config.py`, so the
+example works from any current working directory. A downstream project can
+instead construct its own dictionary and call the two library functions
+directly:
 
-## How each sky is generated
+```python
+from bayeseor_data_generation import generate_skies, simulate_visibilities
+
+sky_paths = generate_skies(my_config)
+visibility_paths = simulate_visibilities(my_config)
+```
+
+## Required physical inputs
+
+### Telescope and observation
+
+The antenna-layout CSV supplies antenna numbers, beam IDs and East/North/Up
+positions in metres. The telescope configuration also defines latitude,
+longitude, altitude, pyuvsim beam type and aperture diameter. The time and
+frequency sections define the complete visibility sampling axes.
+
+The included layout is a 37-element HERA-like hexagon with 14.6 m antenna
+separation. This separation is distinct from the example's 14.2 m Airy-aperture
+diameter.
 
 ### EoR-like white noise
 
-The historical example is a Gaussian, frequency-independent statistical sky:
+The EoR component is a Gaussian statistical sky with configurable NSIDE, RMS,
+random seed and FoV. The full-sky cube is drawn before the FoV is selected, and
+each frequency channel is shifted to zero spatial mean. The supplied values are
+6.4 mK RMS and random seed 92381923.
 
-- NSIDE 128.
-- RMS 6.4 mK.
-- NumPy random seed 92381923.
-- Every frequency channel is shifted to zero spatial mean.
+### GSM diffuse foreground
 
-The random cube is drawn over the full sky in memory before the requested FoV
-is selected. This preserves the historical random-number ordering.
+`pygdsm.GlobalSkyModel` evaluates GSM2008 at every requested frequency. It
+provides the diffuse foreground's spatially varying spectral structure; the
+frequency maps are not generated from one global spectral index. The maps are
+converted to the configured NSIDE, transformed from Galactic coordinates to
+ICRS and selected around the central-time zenith. Frequency chunking reduces
+memory use without changing the physical model.
 
-### GSM
+### GLEAM-like plus A-team foreground
 
-`pygdsm.GlobalSkyModel` generates GSM2008 at every requested frequency. This is
-where the diffuse foreground's spatially varying spectrum comes from: the
-frequency maps are not produced using one global spectral index. The maps are
-downgraded to NSIDE 128, transformed from Galactic coordinates to ICRS, and
-then cut around zenith at the central observation time.
+The faint-source population is generated statistically from the Franzen et al.
+source-count model using configurable random seed, confusion NSIDE and reference
+frequency. It is not read from a pre-generated GLEAM catalogue. Ten fixed bright
+A-team sources are read from `default_configs/a_team.csv`, where positions,
+fluxes, reference frequencies and spectral indices remain visible and editable.
 
-The GSM is evaluated in small frequency chunks to reduce laptop memory use.
-This changes memory consumption, not the physical model.
+## Outputs
 
-### GLEAM-like plus A-team
-
-The point-source model is generated rather than read from a catalogue file:
-
-- Franzen et al. statistical source counts.
-- Random seed 42.
-- NSIDE-256 confusion threshold.
-- Spectral indices drawn around -0.8.
-- Ten explicit A-team sources with their positions, fluxes and spectral indices.
-
-The full statistical population is generated in memory. Sources are then
-selected by their zenith angle at the same central time used for the HEALPix
-maps.
-
-The A-team is a fixed input catalogue stored in `inputs/a_team.csv`. Its ten
-rows contain source name, RA, Dec, Stokes-I flux, reference frequency and
-spectral index. The path is set by `a_team_catalogue` in the observation YAML.
-The GLEAM-like source positions are not stored there: they continue to be
-generated from the Franzen source-count model and random seed 42.
-
-## Running it
-
-Generate the three sets of skyh5 files:
-
-```bash
-python generate_skies.py inputs/h1c_band2.yaml
-```
-
-Then take those sky files and generate their pyuvsim YAML and UVH5 files:
-
-```bash
-python simulate.py inputs/h1c_band2.yaml
-```
-
-Existing files are retained. To regenerate them:
-
-```bash
-python generate_skies.py inputs/h1c_band2.yaml --overwrite
-python simulate.py inputs/h1c_band2.yaml --overwrite
-```
-
-## Output layout
-
-The example writes:
+The example creates:
 
 ```text
 data/h1c_band2/
-  sky_models/
-    eor/
-    gsm/
-    gleam_ateam/
-  observation_files/
-    telescope.yaml
-    eor/
-    gsm/
-    gleam_ateam/
-  visibilities/
-    eor/
-    gsm/
-    gleam_ateam/
+  sky_models/{eor,gsm,gleam_ateam}/fov-*.skyh5
+  observation_files/{eor,gsm,gleam_ateam}/fov-*.yaml
+  visibilities/{eor,gsm,gleam_ateam}/fov-*.uvh5
 ```
 
-For every `sky_models/<component>/fov-X.skyh5`, the workflow creates a matching
-`observation_files/<component>/fov-X.yaml` and, with `--simulate`, a matching
-`visibilities/<component>/fov-X.uvh5`.
-
-## Isambard
-
-Install the historical environment once, then run the same command through
-Slurm:
-
-```bash
-source activate-isambard.sh
-sbatch jobs/generate_skies.sbatch inputs/h1c_band2.yaml
-```
-
-After inspecting the generated sky and observation files:
-
-```bash
-sbatch jobs/simulate.sbatch inputs/h1c_band2.yaml
-```
-
-Both jobs request one GH200 superchip division: 72 CPU cores, 120 GB CPU memory
-and one GPU. Sky generation uses one process; visibility simulation uses four
-MPI tasks with 18 cores each. The GPU is part of the allocation unit; this
-historical pyuvsim workflow is primarily CPU/MPI work.
-
-## Scope
+The observation YAML files are generated runtime inputs for pyuvsim. They are
+derived from `CONFIG`; users do not maintain a second observation configuration.
 
 This repository stops at component visibility generation. Combining components
-into a particular mock dataset and selecting the final BayesEoR inference vector
-are analysis choices and should live in the downstream analysis repository.
+into a mock observation and selecting a BayesEoR inference data vector belong in
+the downstream analysis.

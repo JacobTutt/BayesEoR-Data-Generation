@@ -1,23 +1,20 @@
-#!/usr/bin/env python3
-"""Read one observation YAML and generate its three sky components."""
+"""Generate the EoR, GSM and GLEAM-like+A-team sky components."""
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
+from typing import Any, Mapping
 
 import numpy as np
-import yaml
 
-from eor import generate_eor_maps
-from gleam_ateam import generate_gleam_ateam_maps
-from gsm import generate_gsm_maps
-
-
-REPOSITORY = Path(__file__).resolve().parent
+from .eor import generate_eor_maps
+from .gleam_ateam import generate_gleam_ateam_maps
+from .gsm import generate_gsm_maps
 
 
-def generate_skies(input_file: Path, overwrite: bool = False) -> dict[str, list[Path]]:
+def generate_skies(
+    config: Mapping[str, Any], overwrite: bool = False
+) -> dict[str, list[Path]]:
     """Generate EoR, GSM and GLEAM-like+A-team maps for one observation.
 
     The function reads the telescope location, time axis, frequency axis and
@@ -27,8 +24,9 @@ def generate_skies(input_file: Path, overwrite: bool = False) -> dict[str, list[
 
     Parameters
     ----------
-    input_file
-        Observation YAML; see ``inputs/h1c_band2.yaml``.
+    config
+        Observation configuration dictionary. See the repository-level
+        ``example_config.py`` for every required field.
     overwrite
         Replace existing skyh5 products when true.
 
@@ -42,16 +40,12 @@ def generate_skies(input_file: Path, overwrite: bool = False) -> dict[str, list[
     from astropy.time import Time
     from astropy_healpix import healpy as hp
 
-    with input_file.open() as stream:
-        inputs = yaml.safe_load(stream)
-    output_root = Path(inputs["output_directory"])
-    if not output_root.is_absolute():
-        output_root = REPOSITORY / output_root
+    output_root = Path(config["output_directory"]).expanduser().resolve()
 
-    telescope = inputs["telescope"]
-    time_input = inputs["time"]
-    frequency_input = inputs["frequency"]
-    sky_input = inputs["sky"]
+    telescope = config["telescope"]
+    time_input = config["time"]
+    frequency_input = config["frequency"]
+    sky_input = config["sky"]
     central_jd = (time_input["start_jd"] + time_input["end_jd"]) / 2
     frequencies_hz = frequency_input["start_hz"] + np.arange(
         frequency_input["n_channels"]
@@ -97,26 +91,10 @@ def generate_skies(input_file: Path, overwrite: bool = False) -> dict[str, list[
             sky_input,
             central_jd,
             location,
-            (REPOSITORY / sky_input["gleam_ateam"]["a_team_catalogue"]).resolve(),
+            Path(sky_input["gleam_ateam"]["a_team_catalogue"])
+            .expanduser()
+            .resolve(),
             output_root / "sky_models/gleam_ateam",
             overwrite,
         ),
     }
-
-
-def main() -> None:
-    """Run the three-component sky-generation workflow."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "input_file",
-        type=Path,
-        nargs="?",
-        default=REPOSITORY / "inputs/h1c_band2.yaml",
-    )
-    parser.add_argument("--overwrite", action="store_true")
-    arguments = parser.parse_args()
-    generate_skies(arguments.input_file.resolve(), arguments.overwrite)
-
-
-if __name__ == "__main__":
-    main()
