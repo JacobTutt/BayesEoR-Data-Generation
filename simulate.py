@@ -79,11 +79,13 @@ def simulate_visibilities(
                         "diameter": telescope["beam"]["diameter_m"],
                     }
                 },
-                "telescope_location": [
-                    telescope["latitude_deg"],
-                    telescope["longitude_deg"],
-                    telescope["altitude_m"],
-                ],
+                "telescope_location": repr(
+                    (
+                        telescope["latitude_deg"],
+                        telescope["longitude_deg"],
+                        telescope["altitude_m"],
+                    )
+                ),
                 "telescope_name": telescope["name"],
             }
             with telescope_file.open("w") as stream:
