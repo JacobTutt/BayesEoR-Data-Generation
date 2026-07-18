@@ -1,138 +1,217 @@
 # BayesEoR Data Generation
 
-Standalone reproduction of the large-field simulation workflow described in
-Jacob Burba's BayesEoR handover. This repository does **not** import or modify
-the active BayesEoR inference checkout.
+A small, standalone guide to generating BayesEoR simulation data from scratch.
+It starts from a physical description of an observation and produces skyh5 sky
+models plus pyuvsim UVH5 visibilities. It does not import or modify the BayesEoR
+inference code, and copied historical simulations are not inputs.
 
-## What is generated from scratch
+## The workflow
 
-`generate.py prepare` creates every sky parent and then its FoV products:
+One YAML file describes the observation. The code is split only at genuine
+physical boundaries:
 
-1. A 180-channel, NSIDE-128 white-noise EoR-like cube generated with NumPy,
-   sigma 6.4 mK, seed `92381923`, with each frequency map shifted to zero mean.
-2. GSM2008 generated with `pygdsm.GlobalSkyModel(include_cmb=True)`, downgraded
-   to NSIDE 128 and transformed from Galactic coordinates to ICRS.
-3. A 785,669-source GLEAM-like statistical catalogue generated from the
-   Franzen et al. (2019) source-count model with seed 42, plus the ten-source
-   A-team catalogue.
-4. Zenith-angle FoV selections at the central H1C field-1 JD.
-5. Absolute-path `pyuvsim` observation YAMLs using the hex-37 layout and a
-   14.2 m Airy aperture.
+- `eor.py` generates EoR maps.
+- `gsm.py` generates diffuse GSM maps.
+- `gleam_ateam.py` generates the statistical point-source+A-team maps.
+- `generate_skies.py` computes the central pointing once and calls those three
+  component generators.
+- `simulate.py` takes the generated maps and calculates their visibilities.
 
-The copied Burba products are not inputs. They are read only by the optional
-`verify` stage, after generation, to test reproducibility.
+The workflow is:
 
-## Recovered historical choices
-
-- Frequency axis: 180 channels starting at 150.29296875 MHz with
-  97.65625 kHz spacing.
-- Time axis: 243 integrations from JD 2459999.067040411 to
-  2459999.127292119, with 21.511353650861533 s integration time.
-- Historical 12.9-degree FoV: the calculation uses 12.9080728652 degrees and
-  the filename rounds it to `12.9`.
-- FoV definition: pixel/source centre has zenith angle no greater than half
-  the quoted FoV at the central JD.
-- GLEAM-like algorithm: independently implemented to reproduce
-  `HERA-Team/validation-sim` commit `a3dac9a`; the source names, positions,
-  fluxes and spectral indices have been regression checked against Burba's
-  catalogue.
-- Visibility software recorded in Burba's UVH5 history: pyuvsim 1.2.6,
-  pyradiosky 0.3.1, and pyuvdata 2.4.1.
-- The missing historical `hex-37-14.6m-airy.yml` was a 14.2 m Airy model. A
-  one-sample forward simulation reproduces the stored visibility to about
-  5e-8 Jy; a 14.6 m aperture does not.
-- The telescope YAML uses the historical `type: airy` representation required
-  by pyuvsim 1.2.6, not the later `!AnalyticBeam` tag found in newer copies.
-
-## Environment
-
-For strict visibility reproduction, create a dedicated environment and install
-the pinned project:
-
-```bash
-module load cray-python/3.11.7 brics/openmpi/4.1.7
-export LD_LIBRARY_PATH="${OPENMPI_ROOT}/lib:${LD_LIBRARY_PATH:-}"
-python -m venv venv
-source venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-isambard-lock.txt
-python -m pip install -e . --no-deps
+```text
+observation YAML
+    |
+    +-- telescope location, layout and beam
+    +-- start/end time and integration length
+    +-- frequency start, spacing and channel count
+    +-- HEALPix NSIDE
+    +-- EoR FoV(s)
+    +-- GSM FoV(s)
+    +-- GLEAM-like+A-team FoV(s)
+    |
+    v
+central observation time and zenith direction
+    |
+    v
+EoR, GSM and GLEAM-like+A-team skyh5 files
+    |
+    v
+simulate.py
+    |
+    v
+one pyuvsim observation YAML per sky file
+    |
+    v
+one UVH5 visibility file per component and FoV
 ```
 
-For later interactive use, `source activate-isambard.sh` loads the same Python
-and MPI modules, adds OpenMPI's library directory, and activates `venv`.
+FoV values are full angular diameters. For example, a 30-degree FoV contains
+HEALPix pixel centres or point sources within 15 degrees of zenith. Zenith is
+calculated at the midpoint between `start_jd` and `end_jd`.
 
-The old visibility stack may require build adjustments on Isambard's ARM64
-nodes. `requirements-modern.txt` is supplied for development and scientific
-cross-checking, but its UVH5 results should not be called bitwise historical.
+## Required inputs
 
-The historical BayesEoR preprocessor is used only for the final 39-frequency,
-47-time vectors. Fetch its pinned official checkout with:
+All required inputs are visible in `inputs/h1c_band2.yaml`.
+
+### Telescope
+
+| Input | Meaning |
+| --- | --- |
+| `antenna_layout` | CSV containing antenna numbers, beam IDs and ENU positions in metres |
+| `latitude_deg`, `longitude_deg`, `altitude_m` | Telescope location used both for the sky cut and pyuvsim |
+| `beam.type` | pyuvsim beam model; the historical example uses `airy` |
+| `beam.diameter_m` | Airy aperture diameter; the recovered historical value is 14.2 m |
+| `redundant_threshold_m` | pyuvsim tolerance for grouping redundant baselines |
+
+The included `instrument/hex-37-14.6m.csv` is a 37-element hexagonal HERA-like
+layout with 14.6 m antenna separation. The separation and Airy aperture diameter
+are different quantities.
+
+### Time axis
+
+| Input | Historical example |
+| --- | ---: |
+| Start time | JD 2459999.067040411 |
+| End time | JD 2459999.127292119 |
+| Integration time | 21.511353650861533 s |
+| Result | 243 integrations |
+
+The central JD is used to decide which sky pixels and point sources fall inside
+each FoV. The full start/end range is passed to pyuvsim for the visibility
+simulation.
+
+### Frequency axis
+
+| Input | Historical example |
+| --- | ---: |
+| First channel | 150.29296875 MHz |
+| Channel spacing | 97.65625 kHz |
+| Number of channels | 180 |
+| Final channel | 167.7734375 MHz |
+
+The same frequency array is used by the EoR and GSM sky cubes and by pyuvsim.
+Point-source fluxes are represented by reference fluxes and spectral indices;
+pyuvsim evaluates them at these frequencies.
+
+### Sky fields
+
+Each sky component has its own `fovs_deg` list. The supplied example requests:
+
+- EoR: 12.9080728652 degrees.
+- GSM: 12.9080728652, 30, 60, 90 and 120 degrees.
+- GLEAM-like+A-team: 12.9080728652, 30, 60, 90 and 120 degrees.
+
+Changing or adding an FoV requires editing only this list. There are no FoVs
+hard-coded into the workflow.
+
+## How each sky is generated
+
+### EoR-like white noise
+
+The historical example is a Gaussian, frequency-independent statistical sky:
+
+- NSIDE 128.
+- RMS 6.4 mK.
+- NumPy random seed 92381923.
+- Every frequency channel is shifted to zero spatial mean.
+
+The random cube is drawn over the full sky in memory before the requested FoV
+is selected. This preserves the historical random-number ordering.
+
+### GSM
+
+`pygdsm.GlobalSkyModel` generates GSM2008 at every requested frequency. This is
+where the diffuse foreground's spatially varying spectrum comes from: the
+frequency maps are not produced using one global spectral index. The maps are
+downgraded to NSIDE 128, transformed from Galactic coordinates to ICRS, and
+then cut around zenith at the central observation time.
+
+The GSM is evaluated in small frequency chunks to reduce laptop memory use.
+This changes memory consumption, not the physical model.
+
+### GLEAM-like plus A-team
+
+The point-source model is generated rather than read from a catalogue file:
+
+- Franzen et al. statistical source counts.
+- Random seed 42.
+- NSIDE-256 confusion threshold.
+- Spectral indices drawn around -0.8.
+- Ten explicit A-team sources with their positions, fluxes and spectral indices.
+
+The full statistical population is generated in memory. Sources are then
+selected by their zenith angle at the same central time used for the HEALPix
+maps.
+
+## Running it
+
+Generate the three sets of skyh5 files:
 
 ```bash
-./bootstrap-historical-dependencies.sh
+python generate_skies.py inputs/h1c_band2.yaml
 ```
 
-This creates `external/BayesEoR` at commit
-`86d5f9239b46610d5226d699a1a0c2e2602c5ea5`; it does not alter any other
-BayesEoR checkout.
-
-## Typical campaign
-
-From the repository root:
+Then take those sky files and generate their pyuvsim YAML and UVH5 files:
 
 ```bash
-# Generate all parents, FoV sky models and pyuvsim YAMLs from scratch.
-sbatch jobs/prepare.sbatch \
-  --foreground-fovs 12.9080728652 30 60 90 120
-
-# Generate only a new 40-degree foreground case. The parents must have been
-# generated by this repository first.
-python generate.py --foreground-fovs 40 cutouts
-python generate.py --foreground-fovs 40 obsparams
-
-# Run the fixed 12.9-degree EoR visibility once.
-sbatch jobs/simulate.sbatch \
-  --foreground-fovs 40 --components white-noise
-
-# Run GSM and point-source visibilities for the new foreground FoV.
-sbatch jobs/simulate.sbatch \
-  --foreground-fovs 40 --components gsm ptsrc
-
-# Once simulations finish, form EoR + GSM + point-source data.
-python generate.py --foreground-fovs 40 sum
-
-# Reproduce the inference downselection: 39 frequencies, 47 times, <=40 m.
-python generate.py --foreground-fovs 40 preprocess
+python simulate.py inputs/h1c_band2.yaml
 ```
 
-To regenerate parents even when output files already exist, pass
-`--overwrite` before the stage name.
-
-## Regression comparison
-
-After a from-scratch run, compare sky products with Burba's transferred files:
+Existing files are retained. To regenerate them:
 
 ```bash
-python generate.py \
-  --foreground-fovs 12.9080728652 30 60 90 120 \
-  verify \
-  --reference-root /projects/u6my/users/jacobtutt.u6my/BayesEoR/large-fov
+python generate_skies.py inputs/h1c_band2.yaml --overwrite
+python simulate.py inputs/h1c_band2.yaml --overwrite
 ```
 
-The reference directory is used only by `verify` and never by `prepare`,
-`simulate`, `sum`, or `preprocess`.
+## Output layout
 
-For the full comparison on an Isambard compute node, select the product stage
-that has finished:
+The example writes:
+
+```text
+data/h1c_band2/
+  sky_models/
+    eor/
+    gsm/
+    gleam_ateam/
+  observation_files/
+    telescope.yaml
+    eor/
+    gsm/
+    gleam_ateam/
+  visibilities/
+    eor/
+    gsm/
+    gleam_ateam/
+```
+
+For every `sky_models/<component>/fov-X.skyh5`, the workflow creates a matching
+`observation_files/<component>/fov-X.yaml` and, with `--simulate`, a matching
+`visibilities/<component>/fov-X.uvh5`.
+
+## Isambard
+
+Install the historical environment once, then run the same command through
+Slurm:
 
 ```bash
-sbatch jobs/verify.sbatch \
-  --reference-root /projects/u6my/users/jacobtutt.u6my/BayesEoR/large-fov \
-  --products skies
+source activate-isambard.sh
+sbatch jobs/generate_skies.sbatch inputs/h1c_band2.yaml
 ```
 
-The verifier reports maximum absolute error, relative L2 error, RMS-relative
-error, and the 99th-percentile and maximum pointwise fractional errors after
-excluding reference values below `1e-12` of the product's peak. Use
-`--products vis` or `--products processed` after those stages have completed.
+After inspecting the generated sky and observation files:
+
+```bash
+sbatch jobs/simulate.sbatch inputs/h1c_band2.yaml
+```
+
+The job requests one GH200 superchip division: 72 CPU cores in four MPI tasks,
+120 GB CPU memory and one GPU. The GPU is part of the allocation unit; this
+historical pyuvsim workflow is primarily CPU/MPI work.
+
+## Scope
+
+This repository stops at component visibility generation. Combining components
+into a particular mock dataset and selecting the final BayesEoR inference vector
+are analysis choices and should live in the downstream analysis repository.

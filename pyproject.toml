@@ -1,14 +1,13 @@
 [project]
 name = "bayeseor-data-generation"
 version = "0.1.0"
-description = "Standalone, from-scratch reproduction of the Burba BayesEoR large-FoV simulations"
+description = "A documented observation-to-sky-to-visibility workflow for BayesEoR simulations"
 requires-python = ">=3.10"
 dependencies = [
   "astropy",
   "astropy-healpix",
   "healpy",
   "h5py",
-  "jsonargparse",
   "numpy<2",
   "pygdsm==1.7.0",
   "pyradiosky==0.3.1",
@@ -19,7 +18,8 @@ dependencies = [
 ]
 
 [project.scripts]
-bayeseor-generate = "generate:main"
+bayeseor-generate-skies = "generate_skies:main"
+bayeseor-simulate = "simulate:main"
 
 [tool.setuptools]
-py-modules = ["generate"]
+py-modules = ["eor", "generate_skies", "gleam_ateam", "gsm", "simulate"]

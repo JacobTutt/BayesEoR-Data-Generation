@@ -5,7 +5,7 @@ scipy
 astropy
 astropy-healpix
 healpy
-jsonargparse
+h5py
 pygdsm==1.7.0
 pyradiosky>=1.1
 pyuvdata>=3.2

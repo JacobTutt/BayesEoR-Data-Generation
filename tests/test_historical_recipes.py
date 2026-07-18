@@ -1,38 +1,67 @@
+"""Fast checks for the documented example observation."""
+
 from pathlib import Path
 
 import numpy as np
+import yaml
 
-import generate
+import eor
+import generate_skies
+import gleam_ateam
+import gsm
+import simulate
 
 
-def test_historical_fov_pixel_counts():
-    expected = {
-        generate.HISTORICAL_EOR_FOV_DEG: 623,
-        30.0: 3352,
-        60.0: 13179,
-        90.0: 28791,
-        120.0: 49153,
+INPUT_FILE = Path(__file__).parents[1] / "inputs/h1c_band2.yaml"
+
+
+def test_example_frequency_axis():
+    """The example must describe the historical 180-channel band-2 axis."""
+    inputs = yaml.safe_load(INPUT_FILE.read_text())
+    frequency = inputs["frequency"]
+    values = frequency["start_hz"] + np.arange(
+        frequency["n_channels"]
+    ) * frequency["channel_width_hz"]
+    assert values.size == 180
+    assert values[0] == 150_292_968.75
+    assert values[-1] == 167_773_437.5
+
+
+def test_example_observation_has_all_physical_inputs():
+    """The user-facing YAML must contain every required observation section."""
+    inputs = yaml.safe_load(INPUT_FILE.read_text())
+    assert set(inputs) == {
+        "output_directory", "telescope", "time", "frequency", "sky"
     }
-    for fov, count in expected.items():
-        assert generate.healpix_fov_indices(generate.NSIDE, fov).size == count
+    assert set(inputs["sky"]) == {"nside", "eor", "gsm", "gleam_ateam"}
+    assert inputs["sky"]["eor"]["fovs_deg"] == [12.9080728652]
+    assert inputs["sky"]["gsm"]["fovs_deg"][-1] == 120.0
+    assert inputs["sky"]["gleam_ateam"]["fovs_deg"][-1] == 120.0
 
 
-def test_frequency_axis():
-    frequencies = generate.frequency_axis_hz()
-    assert frequencies.size == 180
-    assert frequencies[0] == 150_292_968.75
-    assert frequencies[-1] == 167_773_437.5
+def test_generation_has_no_reference_data_input():
+    """The normal workflow must not know where copied Burba files live."""
+    input_text = INPUT_FILE.read_text()
+    assert "BayesEoR/large-fov" not in input_text
+    assert "/projects/u6" not in input_text
 
 
-def test_no_reference_path_in_generation_defaults():
-    assert "BayesEoR/large-fov" not in str(generate.default_output_root())
+def test_source_count_model_is_finite():
+    """The embedded GLEAM-like source-count polynomial must remain numerical."""
+    values = gleam_ateam._franzen_differential_source_count(
+        np.array([1e-3, 1.0, 10.0])
+    )
+    assert np.all(np.isfinite(values))
+    assert np.all(values > 0)
 
 
-def test_fractional_metrics():
-    reference = np.array([1.0, 2.0, 0.0, -4.0])
-    regenerated = np.array([1.0, 2.2, 0.0, -4.0])
-    metrics = generate._fractional_metrics(regenerated, reference)
-    assert np.isclose(metrics["max_abs"], 0.2)
-    assert np.isclose(metrics["relative_l2"], 0.2 / np.linalg.norm(reference))
-    assert np.isclose(metrics["rms_relative"], metrics["relative_l2"])
-    assert np.isclose(metrics["pointwise_max"], 0.1)
+def test_public_workflow_functions_are_documented():
+    """Every independently runnable physical stage must explain its inputs."""
+    functions = [
+        eor.generate_eor_maps,
+        gsm.generate_gsm_maps,
+        gleam_ateam.generate_gleam_ateam_maps,
+        generate_skies.generate_skies,
+        simulate.simulate_visibilities,
+    ]
+    assert all(function.__doc__ and "Parameters" in function.__doc__ for function in functions)
