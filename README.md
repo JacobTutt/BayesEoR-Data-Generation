@@ -41,6 +41,8 @@ The copied Burba products are not inputs. They are read only by the optional
 - The missing historical `hex-37-14.6m-airy.yml` was a 14.2 m Airy model. A
   one-sample forward simulation reproduces the stored visibility to about
   5e-8 Jy; a 14.6 m aperture does not.
+- The telescope YAML uses the historical `type: airy` representation required
+  by pyuvsim 1.2.6, not the later `!AnalyticBeam` tag found in newer copies.
 
 ## Environment
 
@@ -48,12 +50,16 @@ For strict visibility reproduction, create a dedicated environment and install
 the pinned project:
 
 ```bash
-module load cray-python/3.11.7
+module load cray-python/3.11.7 brics/openmpi/4.1.7
+export LD_LIBRARY_PATH="${OPENMPI_ROOT}/lib:${LD_LIBRARY_PATH:-}"
 python -m venv venv
 source venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 ```
+
+For later interactive use, `source activate-isambard.sh` loads the same Python
+and MPI modules, adds OpenMPI's library directory, and activates `venv`.
 
 The old visibility stack may require build adjustments on Isambard's ARM64
 nodes. `requirements-modern.txt` is supplied for development and scientific

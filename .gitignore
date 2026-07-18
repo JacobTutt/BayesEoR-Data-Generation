@@ -5,3 +5,4 @@ logs/*
 external/
 __pycache__/
 *.pyc
+*.egg-info/
