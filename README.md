@@ -206,8 +206,9 @@ After inspecting the generated sky and observation files:
 sbatch jobs/simulate.sbatch inputs/h1c_band2.yaml
 ```
 
-The job requests one GH200 superchip division: 72 CPU cores in four MPI tasks,
-120 GB CPU memory and one GPU. The GPU is part of the allocation unit; this
+Both jobs request one GH200 superchip division: 72 CPU cores, 120 GB CPU memory
+and one GPU. Sky generation uses one process; visibility simulation uses four
+MPI tasks with 18 cores each. The GPU is part of the allocation unit; this
 historical pyuvsim workflow is primarily CPU/MPI work.
 
 ## Scope
