@@ -106,6 +106,7 @@ class FranzenSourceCounts:
 def generate_gleam_ateam_maps(
     sky_inputs: dict,
     central_jd: float,
+    mask_times_jd: np.ndarray,
     telescope_location,
     a_team_catalogue: Path,
     output_directory: Path,
@@ -121,7 +122,11 @@ def generate_gleam_ateam_maps(
         subsection supplies FoVs, random seed, confusion NSIDE and reference
         frequency.
     central_jd
-        Observation midpoint at which source zenith angles are evaluated.
+        Observation midpoint stored with the selected sky model.
+    mask_times_jd
+        Julian dates used for source selection. This contains only the
+        observation midpoint for a central mask, or every integration for a
+        drift-scan union mask.
     telescope_location
         Astropy EarthLocation constructed from the observation configuration.
     a_team_catalogue
@@ -144,7 +149,7 @@ def generate_gleam_ateam_maps(
     reading an existing GLEAM catalogue.
     """
     from astropy import units as u
-    from astropy.coordinates import Latitude, Longitude
+    from astropy.coordinates import AltAz, Latitude, Longitude, SkyCoord
     from astropy.time import Time
     from pyradiosky import SkyModel
 
@@ -213,17 +218,41 @@ def generate_gleam_ateam_maps(
     )
 
     full_sky = gleam_like.concat(ateam, inplace=False)
+    selected_by_fov = {
+        fov: np.zeros(full_sky.name.size, dtype=bool)
+        for fov in point_inputs["fovs_deg"]
+    }
+    for jd in mask_times_jd:
+        zenith = SkyCoord(
+            az=0 * u.deg,
+            alt=90 * u.deg,
+            frame=AltAz(
+                obstime=Time(jd, format="jd"), location=telescope_location
+            ),
+        ).transform_to("icrs")
+        zenith_angle_deg = full_sky.skycoord.separation(zenith).deg
+        for fov in point_inputs["fovs_deg"]:
+            selected_by_fov[fov] |= zenith_angle_deg <= fov / 2
+
+    # Store apparent coordinates at the central time for both mask modes.
     full_sky.update_positions(Time(central_jd, format="jd"), telescope_location)
-    zenith_angle_deg = 90 - np.rad2deg(full_sky.alt_az[0])
     for fov, output in zip(point_inputs["fovs_deg"], outputs):
         if output.exists() and not overwrite:
             continue
         selected = full_sky.select(
-            component_inds=np.where(zenith_angle_deg <= fov / 2)[0],
+            component_inds=np.where(selected_by_fov[fov])[0],
             inplace=False,
         )
+        mask_description = (
+            f"central JD {central_jd}"
+            if mask_times_jd.size == 1
+            else (
+                f"the union of {mask_times_jd.size} integrations from JD "
+                f"{mask_times_jd[0]} to {mask_times_jd[-1]}"
+            )
+        )
         selected.history += (
-            f"\nFoV diameter {fov} deg selected at central JD {central_jd}."
+            f"\nFoV diameter {fov} deg selected using {mask_description}."
         )
         print(f"Writing GLEAM-like+A-team map: {output}")
         selected.write_skyh5(output, clobber=overwrite)

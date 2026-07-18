@@ -23,7 +23,8 @@ def generate_gsm_maps(
     frequencies_hz
         Complete observing frequency axis in Hz.
     pixels_by_fov
-        HEALPix indices selected at the central time for every requested FoV.
+        HEALPix indices selected using the configured time-mask mode for every
+        requested FoV.
     central_jd
         Midpoint of the observation in Julian days; recorded in file history.
     output_directory
@@ -86,15 +87,22 @@ def generate_gsm_maps(
     )
     full_sky.healpix_interp_transform(frame="icrs", full_sky=True)
 
+    mask_mode = str(sky_inputs.get("sky_mask_time_mode", "center")).lower()
     for fov, output in zip(gsm_inputs["fovs_deg"], outputs):
         if output.exists() and not overwrite:
             continue
         selected = full_sky.select(
             component_inds=pixels_by_fov[fov], inplace=False
         )
-        selected.history += (
-            f"\nFoV diameter {fov} deg selected at central JD {central_jd}."
-        )
+        if mask_mode == "union":
+            selected.history += (
+                f"\nFoV diameter {fov} deg selected using the drift-scan "
+                f"union mask around central JD {central_jd}."
+            )
+        else:
+            selected.history += (
+                f"\nFoV diameter {fov} deg selected at central JD {central_jd}."
+            )
         print(f"Writing GSM map: {output}")
         selected.write_skyh5(output, clobber=overwrite)
     return outputs

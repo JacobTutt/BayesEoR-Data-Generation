@@ -1,152 +1,137 @@
 # BayesEoR Data Generation
 
-A standalone, reusable pipeline for generating the three sky components used in
-BayesEoR-style simulations and propagating them through a pyuvsim visibility
-calculation. It does not import or modify the BayesEoR inference code and does
-not require pre-generated sky or visibility products.
+Generate sky models and interferometric visibilities for BayesEoR-style
+simulations from one YAML configuration.
 
-## Repository layout
+The package creates three sky components:
 
-```text
-src/bayeseor_data_generation/
-  eor.py                 EoR-like white-noise sky generation
-  gsm.py                 diffuse GSM2008 sky generation
-  gleam_ateam.py         statistical GLEAM-like plus A-team generation
-  generate_skies.py      shared pointing and sky-generation workflow
-  simulate.py            pyuvsim observation and visibility workflow
-default_configs/
-  hex-37-14.6m.csv       example antenna layout
-  a_team.csv             fixed bright-source catalogue
-example_config.yaml      complete editable example configuration
-example_run.py           complete example workflow
-```
+- an EoR-like Gaussian white-noise sky;
+- diffuse foreground emission from GSM2008;
+- a statistical GLEAM-like point-source population plus fixed bright A-team
+  sources.
 
-Generated data, observation files, visibilities, machine environments, batch
-scripts and scheduler logs are deliberately not part of the repository.
+Each component can be generated for one or more fields of view. The resulting
+sky models can then be passed through `pyuvsim` using the same telescope, time
+and frequency settings.
 
 ## Installation
 
-Clone the repository, create an isolated Python environment and install the
-package in editable mode:
+Python 3.10 or later and an MPI implementation are required. Create an
+environment and install the package with:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-The dependency constraints in `pyproject.toml` retain the historical pyuvsim,
-pyuvdata and pyradiosky APIs used while developing this pipeline. Visibility
-simulation uses MPI through `mpi4py` and pyuvsim; an MPI implementation must
-therefore be available on the machine.
+## Quick start
 
-## Running the example
-
-Review `example_config.yaml`, especially the output directory, time and frequency
-axes, component FoVs and `run.simulate_visibilities` switch. Then run:
+Edit `example_config.yaml`, particularly `output_directory`, then run:
 
 ```bash
 python example_run.py
 ```
 
-The Python runner loads the YAML and first calls `generate_skies(config)`. If
-`run.simulate_visibilities` is true, it then passes the same dictionary to
-`simulate_visibilities(config)`. This guarantees that the sky selection and
-visibility calculation use one observation definition.
+The example generates all requested sky models and, when
+`run.simulate_visibilities` is `true`, their visibility simulations. It is a
+large example, so reduce the number of frequency channels, time range or fields
+of view for a quicker test.
 
-The supplied configuration is the recovered HERA Band-2 example. It is a real,
-large simulation: 180 frequency channels, 243 time integrations, a 37-element
-layout, and foreground FoVs out to 120 degrees. For a quick trial, reduce the
-channel count, time range and FoV lists before running it.
-
-Existing outputs are preserved. Set `run.overwrite_existing_files: true` in
-`example_config.yaml` only when existing products should be replaced.
+Existing files are kept by default. Set
+`run.overwrite_existing_files: true` to replace them.
 
 ## Configuration
 
-The YAML has a small `run` section followed by the physical configuration:
+`example_config.yaml` contains the complete input configuration:
 
-- `run`: whether to simulate visibilities and overwrite existing products.
-- `output_directory`: destination for all generated products.
-- `telescope`: antenna layout, geodetic location, beam and redundancy tolerance.
-- `time`: start/end Julian dates and integration time in seconds.
-- `frequency`: first channel, channel width and number of channels.
-- `sky`: common HEALPix NSIDE plus settings for each physical sky component.
+- `run` controls whether visibilities are simulated and whether existing files
+  are replaced.
+- `output_directory` sets where generated products are written.
+- `telescope` defines the antenna layout, location, beam and redundancy
+  threshold.
+- `time` defines the observation start, end and integration time.
+- `frequency` defines the first channel, channel width and number of channels.
+- `sky` defines the HEALPix resolution, sky-mask mode and settings for each sky
+  component.
 
-FoVs are full angular diameters centred on zenith at the midpoint of the
-observation. For example, a 30-degree FoV retains pixels or point sources within
-15 degrees of zenith.
+Fields of view are full angular diameters around zenith. For example, a
+30-degree field of view includes sky positions within 15 degrees of zenith.
 
-The runner interprets relative paths from the directory containing
-`example_config.yaml`, so the example works from any current working directory.
-A downstream project can load its own YAML or construct a dictionary and call
-the two library functions directly:
+The `sky.sky_mask_time_mode` option controls how the field-of-view mask is
+applied:
+
+- `center` selects the sky visible at the midpoint of the observation. This is
+  the default when the option is omitted.
+- `union` selects every pixel or point source that enters the field of view at
+  any integration during the observation.
+
+Use a new output directory or enable overwriting when changing the mask mode,
+because both modes use the same filenames.
+
+The three component sections provide their own useful controls:
+
+- `sky.eor` sets the fields of view, RMS and random seed for the EoR-like sky.
+- `sky.gsm` sets the fields of view, whether to include the CMB and the
+  frequency chunk size used while evaluating GSM2008.
+- `sky.gleam_ateam` sets the fields of view, A-team catalogue, random seed,
+  confusion resolution and reference frequency for the point-source sky.
+
+Relative paths in the example are resolved from the directory containing
+`example_config.yaml`.
+
+## What is generated
+
+### EoR-like sky
+
+This component creates a Gaussian white-noise sky at the configured RMS and
+random seed. Each frequency channel is shifted to zero spatial mean before the
+field-of-view mask is applied.
+
+### GSM diffuse foreground
+
+This component evaluates `pygdsm.GlobalSkyModel` (GSM2008) at each configured
+frequency, converts the maps to the requested HEALPix resolution and ICRS
+coordinates, and applies the field-of-view mask.
+
+### GLEAM-like and A-team foreground
+
+This component draws a statistical faint-source population from its
+source-count model and adds the bright sources listed in
+`default_configs/a_team.csv`.
+
+### Visibilities
+
+For every generated component and field of view, `pyuvsim` uses the configured
+array, beam, time and frequency sampling to create a UVH5 visibility file.
+
+## Outputs
+
+Products are grouped by component under the configured output directory:
+
+```text
+sky_models/{eor,gsm,gleam_ateam}/fov-*.skyh5
+observation_files/{eor,gsm,gleam_ateam}/fov-*.yaml
+visibilities/{eor,gsm,gleam_ateam}/fov-*.uvh5
+```
+
+The observation YAML files are generated inputs for `pyuvsim`.
+
+## Using the library
+
+The main functions can also be called directly with a configuration dictionary:
 
 ```python
 from bayeseor_data_generation import generate_skies, simulate_visibilities
 
-sky_paths = generate_skies(my_config)
-visibility_paths = simulate_visibilities(my_config)
+sky_paths = generate_skies(config)
+visibility_paths = simulate_visibilities(config)
 ```
 
-## Required physical inputs
+## Summing visibility components
 
-### Telescope and observation
-
-The antenna-layout CSV supplies antenna numbers, beam IDs and East/North/Up
-positions in metres. The telescope configuration also defines latitude,
-longitude, altitude, pyuvsim beam type and aperture diameter. The time and
-frequency sections define the complete visibility sampling axes.
-
-The included layout is a 37-element HERA-like hexagon with 14.6 m antenna
-separation. This separation is distinct from the example's 14.2 m Airy-aperture
-diameter.
-
-### EoR-like white noise
-
-The EoR component is a Gaussian statistical sky with configurable NSIDE, RMS,
-random seed and FoV. The full-sky cube is drawn before the FoV is selected, and
-each frequency channel is shifted to zero spatial mean. The supplied values are
-6.4 mK RMS and random seed 92381923.
-
-### GSM diffuse foreground
-
-`pygdsm.GlobalSkyModel` evaluates GSM2008 at every requested frequency. It
-provides the diffuse foreground's spatially varying spectral structure; the
-frequency maps are not generated from one global spectral index. The maps are
-converted to the configured NSIDE, transformed from Galactic coordinates to
-ICRS and selected around the central-time zenith. Frequency chunking reduces
-memory use without changing the physical model.
-
-### GLEAM-like plus A-team foreground
-
-The faint-source population is generated statistically from the Franzen et al.
-source-count model using configurable random seed, confusion NSIDE and reference
-frequency. It is not read from a pre-generated GLEAM catalogue. Ten fixed bright
-A-team sources are read from `default_configs/a_team.csv`, where positions,
-fluxes, reference frequencies and spectral indices remain visible and editable.
-
-## Outputs
-
-The example creates:
-
-```text
-data/h1c_band2/
-  sky_models/{eor,gsm,gleam_ateam}/fov-*.skyh5
-  observation_files/{eor,gsm,gleam_ateam}/fov-*.yaml
-  visibilities/{eor,gsm,gleam_ateam}/fov-*.uvh5
-```
-
-The observation YAML files are generated runtime inputs for pyuvsim. They are
-derived from the loaded configuration; users do not maintain a second
-observation configuration.
-
-## Summing selected visibility products
-
-Visibility summation is explicit rather than part of the automatic simulation
-workflow. Pass exactly the products required for one analysis to
-`sum_visibility_files`:
+Visibility files are kept separate during generation. Combine the exact
+components needed for an analysis explicitly with `sum_visibility_files`:
 
 ```python
 from bayeseor_data_generation import sum_visibility_files
@@ -161,11 +146,5 @@ sum_visibility_files(
 )
 ```
 
-The helper loads each file as a PyUVData `UVData` object and uses
-`UVData.sum_vis`. PyUVData checks that the time, frequency, baseline,
-polarization and other visibility metadata are compatible before adding the
-complex visibility arrays. Existing outputs are protected unless
-`overwrite=True` is supplied.
-
-Selecting which component FoVs belong in a mock observation and selecting the
-final BayesEoR inference data vector remain downstream analysis choices.
+The inputs must have compatible time, frequency, baseline and polarization
+sampling. Pass `overwrite=True` to replace an existing summed output.

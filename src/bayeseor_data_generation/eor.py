@@ -23,7 +23,7 @@ def generate_eor_maps(
     frequencies_hz
         Complete observing frequency axis in Hz.
     pixels_by_fov
-        HEALPix indices selected at the observation's central time for every
+        HEALPix indices selected using the configured time-mask mode for every
         requested EoR FoV.
     central_jd
         Midpoint of the observation in Julian days; recorded in file history.
@@ -81,15 +81,22 @@ def generate_eor_maps(
         ),
     )
 
+    mask_mode = str(sky_inputs.get("sky_mask_time_mode", "center")).lower()
     for fov, output in zip(eor_inputs["fovs_deg"], outputs):
         if output.exists() and not overwrite:
             continue
         selected = full_sky.select(
             component_inds=pixels_by_fov[fov], inplace=False
         )
-        selected.history += (
-            f"\nFoV diameter {fov} deg selected at central JD {central_jd}."
-        )
+        if mask_mode == "union":
+            selected.history += (
+                f"\nFoV diameter {fov} deg selected using the drift-scan "
+                f"union mask around central JD {central_jd}."
+            )
+        else:
+            selected.history += (
+                f"\nFoV diameter {fov} deg selected at central JD {central_jd}."
+            )
         print(f"Writing EoR map: {output}")
         selected.write_skyh5(output, clobber=overwrite)
     return outputs

@@ -30,6 +30,9 @@ frequency:
 
 sky:
   nside: 128
+  # "center" uses the inference mask at the observation midpoint. "union"
+  # retains everything that enters its FoV during the full drift scan.
+  sky_mask_time_mode: center
 
   eor:
     fovs_deg: [12.9080728652]
