@@ -1,5 +1,6 @@
 """Generate the statistical GLEAM-like catalogue plus ten A-team sources."""
 
+import csv
 from functools import cached_property
 from pathlib import Path
 
@@ -106,6 +107,7 @@ def generate_gleam_ateam_maps(
     sky_inputs: dict,
     central_jd: float,
     telescope_location,
+    a_team_catalogue: Path,
     output_directory: Path,
     overwrite: bool = False,
 ) -> list[Path]:
@@ -121,6 +123,9 @@ def generate_gleam_ateam_maps(
         Observation midpoint at which source zenith angles are evaluated.
     telescope_location
         Astropy EarthLocation constructed from the observation YAML.
+    a_team_catalogue
+        CSV containing source name, RA, Dec, Stokes-I flux, reference frequency
+        and spectral index for the fixed bright-source catalogue.
     output_directory
         Directory that will contain ``fov-X.skyh5`` files.
     overwrite
@@ -143,6 +148,8 @@ def generate_gleam_ateam_maps(
     from pyradiosky import SkyModel
 
     point_inputs = sky_inputs["gleam_ateam"]
+    if not a_team_catalogue.exists():
+        raise FileNotFoundError(f"Missing A-team catalogue: {a_team_catalogue}")
     output_directory.mkdir(parents=True, exist_ok=True)
     outputs = [
         output_directory
@@ -152,38 +159,25 @@ def generate_gleam_ateam_maps(
     if not overwrite and all(path.exists() for path in outputs):
         return outputs
 
-    ateam_names = np.array(
-        [
-            "3C444", "CentaurusA", "HydraA", "PictorA", "HerculesA",
-            "VirgoA", "Crab", "CygnusA", "CassiopeiaA", "FornaxA",
-        ]
-    )
+    with a_team_catalogue.open(newline="") as stream:
+        ateam_rows = list(csv.DictReader(stream))
+    ateam_names = np.array([row["name"] for row in ateam_rows])
     ateam_stokes = np.zeros((4, 1, ateam_names.size)) * u.Jy
     ateam_stokes[0, 0] = np.array(
-        [60, 1370, 280, 390, 377, 861, 1340, 7920, 11900, 750]
+        [float(row["stokes_i_jy"]) for row in ateam_rows]
     ) * u.Jy
     ateam = SkyModel(
         name=ateam_names,
-        ra=Longitude(
-            [
-                "22h14m16s", "13h25m28s", "09h18m06s", "05h19m50s",
-                "16h51m08s", "12h30m49s", "05h34m32s", "19h59m28s",
-                "23h23m28s", "3h22m42s",
-            ]
-        ),
-        dec=Latitude(
-            [
-                "-17d01m36s", "-43d01m09s", "-12d05m44s", "-45d46m44s",
-                "04d59m33s", "12d23m28s", "22d00m52s", "40d44m02s",
-                "58d48m42s", "-37d12m2s",
-            ]
-        ),
+        ra=Longitude([row["ra"] for row in ateam_rows]),
+        dec=Latitude([row["dec"] for row in ateam_rows]),
         stokes=ateam_stokes,
         spectral_type="spectral_index",
         spectral_index=np.array(
-            [-0.96, -0.50, -0.96, -0.99, -1.07, -0.86, -0.22, -0.78, -0.41, -0.825]
+            [float(row["spectral_index"]) for row in ateam_rows]
         ),
-        reference_frequency=np.array([200] * 9 + [154]) * 1e6 * u.Hz,
+        reference_frequency=np.array(
+            [float(row["reference_frequency_hz"]) for row in ateam_rows]
+        ) * u.Hz,
         frame="icrs",
         history="Ten-source A-team model used by HERA validation-sim.",
     )

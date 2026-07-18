@@ -144,6 +144,12 @@ The full statistical population is generated in memory. Sources are then
 selected by their zenith angle at the same central time used for the HEALPix
 maps.
 
+The A-team is a fixed input catalogue stored in `inputs/a_team.csv`. Its ten
+rows contain source name, RA, Dec, Stokes-I flux, reference frequency and
+spectral index. The path is set by `a_team_catalogue` in the observation YAML.
+The GLEAM-like source positions are not stored there: they continue to be
+generated from the Franzen source-count model and random seed 42.
+
 ## Running it
 
 Generate the three sets of skyh5 files:

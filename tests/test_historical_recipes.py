@@ -1,5 +1,6 @@
 """Fast checks for the documented example observation."""
 
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -53,6 +54,20 @@ def test_source_count_model_is_finite():
     )
     assert np.all(np.isfinite(values))
     assert np.all(values > 0)
+
+
+def test_a_team_is_a_documented_input_catalogue():
+    """The ten fixed bright sources must live in CSV rather than Python code."""
+    inputs = yaml.safe_load(INPUT_FILE.read_text())
+    catalogue = INPUT_FILE.parents[1] / inputs["sky"]["gleam_ateam"][
+        "a_team_catalogue"
+    ]
+    with catalogue.open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 10
+    assert rows[0]["name"] == "3C444"
+    assert rows[-1]["name"] == "FornaxA"
+    assert float(rows[-1]["reference_frequency_hz"]) == 154_000_000
 
 
 def test_public_workflow_functions_are_documented():

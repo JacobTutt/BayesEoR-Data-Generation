@@ -97,6 +97,7 @@ def generate_skies(input_file: Path, overwrite: bool = False) -> dict[str, list[
             sky_input,
             central_jd,
             location,
+            (REPOSITORY / sky_input["gleam_ateam"]["a_team_catalogue"]).resolve(),
             output_root / "sky_models/gleam_ateam",
             overwrite,
         ),

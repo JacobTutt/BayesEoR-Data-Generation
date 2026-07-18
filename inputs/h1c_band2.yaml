@@ -38,6 +38,7 @@ sky:
 
   gleam_ateam:
     fovs_deg: [12.9080728652, 30.0, 60.0, 90.0, 120.0]
+    a_team_catalogue: inputs/a_team.csv
     random_seed: 42
     confusion_nside: 256
     reference_frequency_hz: 154000000.0
