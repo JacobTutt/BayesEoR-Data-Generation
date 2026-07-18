@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=beor-generate-skies
-#SBATCH --account=u6my
+#SBATCH --account=brics.u6my
 #SBATCH --partition=workq
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
