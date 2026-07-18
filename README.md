@@ -55,7 +55,8 @@ export LD_LIBRARY_PATH="${OPENMPI_ROOT}/lib:${LD_LIBRARY_PATH:-}"
 python -m venv venv
 source venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e .
+python -m pip install -r requirements-isambard-lock.txt
+python -m pip install -e . --no-deps
 ```
 
 For later interactive use, `source activate-isambard.sh` loads the same Python

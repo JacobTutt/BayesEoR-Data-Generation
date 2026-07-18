@@ -8,6 +8,7 @@ dependencies = [
   "astropy-healpix",
   "healpy",
   "h5py",
+  "jsonargparse",
   "numpy<2",
   "pygdsm==1.7.0",
   "pyradiosky==0.3.1",

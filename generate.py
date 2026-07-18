@@ -471,8 +471,6 @@ def _write_obsparam(path: Path, catalog: Path, output_dir: Path, output_name: st
             "end_time": JD_END,
         },
         "select": {"redundant_threshold": 1.0},
-        # Explicitly preserve the convention used by pyuvsim 1.2.6.
-        "ordering": {"conjugation_convention": "ant2<ant1"},
     }
     print(f"Writing: {path}")
     with path.open("w") as stream:
@@ -585,8 +583,10 @@ def preprocess(root: Path, eor_fov: float, foreground_fovs: list[float], overwri
     proc_dir = data_dir / "proc"
     proc_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(historical_repo) + os.pathsep + env.get("PYTHONPATH", "")
-    for fov in foreground_fovs:
+    shim = repo_root() / "historical_shim"
+    env["PYTHONPATH"] = str(shim) + os.pathsep + env.get("PYTHONPATH", "")
+    instrument_root = root / "inst-models"
+    for index, fov in enumerate(foreground_fovs):
         eor_label = fov_short_label(eor_fov)
         fg_label = fov_short_label(fov)
         filename = (
@@ -599,6 +599,8 @@ def preprocess(root: Path, eor_fov: float, foreground_fovs: list[float], overwri
             "--data_path", str(data_dir),
             "--filename", filename,
             "--save_dir", str(proc_dir),
+            "--inst_model_dir", str(instrument_root),
+            "--telescope_name", "hex-37-14.6m",
             "--bl_cutoff_m", "40",
             "--start_freq_MHz", "157.2265625",
             "--nf", "39",
@@ -606,6 +608,9 @@ def preprocess(root: Path, eor_fov: float, foreground_fovs: list[float], overwri
             "--start_int", "98",
             "--form_pI",
         ]
+        if index == 0:
+            # The first case creates the common UVW/redundancy model from scratch.
+            command.append("--save_model")
         if overwrite:
             command.append("--clobber")
         print("Running:", " ".join(command), flush=True)
