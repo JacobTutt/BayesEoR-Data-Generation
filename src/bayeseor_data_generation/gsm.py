@@ -18,7 +18,7 @@ def generate_gsm_maps(
     Parameters
     ----------
     sky_inputs
-        The ``sky`` section of the observation YAML. The GSM subsection
+        The ``sky`` section of the observation configuration. The GSM subsection
         supplies FoVs, CMB inclusion and the memory-saving chunk size.
     frequencies_hz
         Complete observing frequency axis in Hz.

@@ -1,8 +1,7 @@
 venv/
+.venv/
 data/
-logs/*
-!logs/.gitkeep
-external/
 __pycache__/
 *.pyc
 *.egg-info/
+.DS_Store

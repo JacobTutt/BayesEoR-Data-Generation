@@ -1,13 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "bayeseor-data-generation"
 version = "0.1.0"
-description = "A documented observation-to-sky-to-visibility workflow for BayesEoR simulations"
+description = "Generate BayesEoR sky models and pyuvsim visibilities from an observation configuration"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "astropy",
   "astropy-healpix",
   "healpy",
   "h5py",
+  "mpi4py",
   "numpy<2",
   "pygdsm==1.7.0",
   "pyradiosky==0.3.1",
@@ -17,9 +23,5 @@ dependencies = [
   "scipy",
 ]
 
-[project.scripts]
-bayeseor-generate-skies = "generate_skies:main"
-bayeseor-simulate = "simulate:main"
-
-[tool.setuptools]
-py-modules = ["eor", "generate_skies", "gleam_ateam", "gsm", "simulate"]
+[tool.setuptools.packages.find]
+where = ["src"]

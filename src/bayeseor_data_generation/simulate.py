@@ -1,30 +1,26 @@
-#!/usr/bin/env python3
 """Turn the generated component sky maps into pyuvsim visibilities."""
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
+from typing import Any, Mapping
 
 import yaml
 
 
-REPOSITORY = Path(__file__).resolve().parent
-
-
 def simulate_visibilities(
-    input_file: Path,
+    config: Mapping[str, Any],
     overwrite: bool = False,
 ) -> list[Path]:
     """Simulate one UVH5 file for every generated component/FoV sky map.
 
     Parameters
     ----------
-    input_file
-        The same observation YAML passed to ``generate_skies.py``. Telescope,
-        time and frequency values are written directly into pyuvsim inputs, so
-        the visibility calculation cannot silently use a different observation
-        from the sky generation.
+    config
+        The same observation dictionary passed to :func:`generate_skies`.
+        Telescope, time and frequency values are written directly into the
+        generated pyuvsim inputs, so the visibility calculation cannot silently
+        use a different observation from the sky generation.
     overwrite
         Replace existing observation YAML and UVH5 files when true.
 
@@ -48,20 +44,13 @@ def simulate_visibilities(
 
     communicator = MPI.COMM_WORLD
     rank = communicator.Get_rank()
-    with input_file.open() as stream:
-        inputs = yaml.safe_load(stream)
+    output_root = Path(config["output_directory"]).expanduser().resolve()
+    telescope = config["telescope"]
+    time_input = config["time"]
+    frequency_input = config["frequency"]
+    sky_input = config["sky"]
 
-    output_root = Path(inputs["output_directory"])
-    if not output_root.is_absolute():
-        output_root = REPOSITORY / output_root
-    telescope = inputs["telescope"]
-    time_input = inputs["time"]
-    frequency_input = inputs["frequency"]
-    sky_input = inputs["sky"]
-
-    antenna_layout = Path(telescope["antenna_layout"])
-    if not antenna_layout.is_absolute():
-        antenna_layout = REPOSITORY / antenna_layout
+    antenna_layout = Path(telescope["antenna_layout"]).expanduser().resolve()
     if not antenna_layout.exists():
         raise FileNotFoundError(f"Missing antenna layout: {antenna_layout}")
 
@@ -100,7 +89,7 @@ def simulate_visibilities(
             visibility_file = visibility_root / component / f"fov-{label}.uvh5"
             if not sky_file.exists():
                 raise FileNotFoundError(
-                    f"Missing {sky_file}; run generate_skies.py first."
+                    f"Missing {sky_file}; call generate_skies first."
                 )
             products.append((observation_file, visibility_file, sky_file))
             if rank != 0:
@@ -151,21 +140,3 @@ def simulate_visibilities(
             print(f"Running pyuvsim: {observation_file}", flush=True)
         run_uvsim(str(observation_file))
     return outputs
-
-
-def main() -> None:
-    """Run visibility simulation for all configured component sky files."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "input_file",
-        type=Path,
-        nargs="?",
-        default=REPOSITORY / "inputs/h1c_band2.yaml",
-    )
-    parser.add_argument("--overwrite", action="store_true")
-    arguments = parser.parse_args()
-    simulate_visibilities(arguments.input_file.resolve(), arguments.overwrite)
-
-
-if __name__ == "__main__":
-    main()

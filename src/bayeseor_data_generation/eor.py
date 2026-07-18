@@ -18,7 +18,7 @@ def generate_eor_maps(
     Parameters
     ----------
     sky_inputs
-        The ``sky`` section of the observation YAML. The EoR subsection
+        The ``sky`` section of the observation configuration. The EoR subsection
         supplies NSIDE, RMS temperature, random seed and FoV diameters.
     frequencies_hz
         Complete observing frequency axis in Hz.

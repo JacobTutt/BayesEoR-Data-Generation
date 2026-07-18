@@ -116,13 +116,14 @@ def generate_gleam_ateam_maps(
     Parameters
     ----------
     sky_inputs
-        The ``sky`` section of the observation YAML. The ``gleam_ateam``
+        The ``sky`` section of the observation configuration. The
+        ``gleam_ateam``
         subsection supplies FoVs, random seed, confusion NSIDE and reference
         frequency.
     central_jd
         Observation midpoint at which source zenith angles are evaluated.
     telescope_location
-        Astropy EarthLocation constructed from the observation YAML.
+        Astropy EarthLocation constructed from the observation configuration.
     a_team_catalogue
         CSV containing source name, RA, Dec, Stokes-I flux, reference frequency
         and spectral index for the fixed bright-source catalogue.
