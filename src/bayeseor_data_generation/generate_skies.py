@@ -26,7 +26,7 @@ def generate_skies(
     ----------
     config
         Observation configuration dictionary. See the repository-level
-        ``example_config.py`` for every required field.
+        ``example_config.yaml`` for every required field.
     overwrite
         Replace existing skyh5 products when true.
 

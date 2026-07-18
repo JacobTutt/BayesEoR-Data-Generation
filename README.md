@@ -17,7 +17,7 @@ src/bayeseor_data_generation/
 default_configs/
   hex-37-14.6m.csv       example antenna layout
   a_team.csv             fixed bright-source catalogue
-example_config.py        complete editable example configuration
+example_config.yaml      complete editable example configuration
 example_run.py           complete example workflow
 ```
 
@@ -43,16 +43,16 @@ therefore be available on the machine.
 
 ## Running the example
 
-Review `example_config.py`, especially the output directory, time and frequency
-axes, component FoVs and `SIMULATE_VISIBILITIES` switch. Then run:
+Review `example_config.yaml`, especially the output directory, time and frequency
+axes, component FoVs and `run.simulate_visibilities` switch. Then run:
 
 ```bash
 python example_run.py
 ```
 
-The runner first calls `generate_skies(CONFIG)`. If
-`SIMULATE_VISIBILITIES = True`, it then passes the same configuration to
-`simulate_visibilities(CONFIG)`. This guarantees that the sky selection and
+The Python runner loads the YAML and first calls `generate_skies(config)`. If
+`run.simulate_visibilities` is true, it then passes the same dictionary to
+`simulate_visibilities(config)`. This guarantees that the sky selection and
 visibility calculation use one observation definition.
 
 The supplied configuration is the recovered HERA Band-2 example. It is a real,
@@ -60,13 +60,14 @@ large simulation: 180 frequency channels, 243 time integrations, a 37-element
 layout, and foreground FoVs out to 120 degrees. For a quick trial, reduce the
 channel count, time range and FoV lists before running it.
 
-Existing outputs are preserved. Set `OVERWRITE_EXISTING_FILES = True` in
-`example_config.py` only when existing products should be replaced.
+Existing outputs are preserved. Set `run.overwrite_existing_files: true` in
+`example_config.yaml` only when existing products should be replaced.
 
 ## Configuration
 
-`CONFIG` is a plain Python dictionary with four top-level sections:
+The YAML has a small `run` section followed by the physical configuration:
 
+- `run`: whether to simulate visibilities and overwrite existing products.
 - `output_directory`: destination for all generated products.
 - `telescope`: antenna layout, geodetic location, beam and redundancy tolerance.
 - `time`: start/end Julian dates and integration time in seconds.
@@ -77,10 +78,10 @@ FoVs are full angular diameters centred on zenith at the midpoint of the
 observation. For example, a 30-degree FoV retains pixels or point sources within
 15 degrees of zenith.
 
-Paths in the example are constructed relative to `example_config.py`, so the
-example works from any current working directory. A downstream project can
-instead construct its own dictionary and call the two library functions
-directly:
+The runner interprets relative paths from the directory containing
+`example_config.yaml`, so the example works from any current working directory.
+A downstream project can load its own YAML or construct a dictionary and call
+the two library functions directly:
 
 ```python
 from bayeseor_data_generation import generate_skies, simulate_visibilities
@@ -138,7 +139,8 @@ data/h1c_band2/
 ```
 
 The observation YAML files are generated runtime inputs for pyuvsim. They are
-derived from `CONFIG`; users do not maintain a second observation configuration.
+derived from the loaded configuration; users do not maintain a second
+observation configuration.
 
 This repository stops at component visibility generation. Combining components
 into a mock observation and selecting a BayesEoR inference data vector belong in
