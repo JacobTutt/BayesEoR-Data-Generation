@@ -3,7 +3,41 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import deepcopy
 from pathlib import Path
+
+
+def _phase_centres_match_except_name(
+    reference_catalog: dict, component_catalog: dict
+) -> bool:
+    """Return whether two phase-centre catalogues differ only in ``cat_name``."""
+    import numpy as np
+
+    if reference_catalog.keys() != component_catalog.keys():
+        return False
+    for identifier in reference_catalog:
+        reference = reference_catalog[identifier]
+        component = component_catalog[identifier]
+        keys = set(reference) | set(component)
+        for key in keys - {"cat_name"}:
+            reference_value = reference.get(key)
+            component_value = component.get(key)
+            if reference_value is None or component_value is None:
+                if reference_value is not component_value:
+                    return False
+                continue
+            reference_array = np.asarray(reference_value)
+            component_array = np.asarray(component_value)
+            numeric = np.issubdtype(
+                reference_array.dtype, np.number
+            ) and np.issubdtype(component_array.dtype, np.number)
+            if not np.array_equal(
+                reference_array,
+                component_array,
+                equal_nan=numeric,
+            ):
+                return False
+    return True
 
 
 def sum_visibility_files(
@@ -71,6 +105,19 @@ def sum_visibility_files(
     for path in inputs[1:]:
         component = UVData()
         component.read(str(path))
+
+        # Pyuvsim derives these bookkeeping labels from each component's input
+        # filename. They therefore differ even when the time/frequency/baseline
+        # sampling and physical phase centre are identical. Confirm that the
+        # phase centres differ only by name before using the reference labels.
+        if not _phase_centres_match_except_name(
+            total.phase_center_catalog, component.phase_center_catalog
+        ):
+            raise ValueError(
+                f"Physical phase centres do not match for {inputs[0]} and {path}"
+            )
+        component.phase_center_catalog = deepcopy(total.phase_center_catalog)
+        component.filename = deepcopy(total.filename)
         total = total.sum_vis(component, inplace=False)
 
     total.history += " Input visibility files: " + ", ".join(
