@@ -43,17 +43,78 @@ Existing files are kept by default. Set
 
 ## Configuration
 
-`example_config.yaml` contains the complete input configuration:
+`example_config.yaml` contains every supported input. Relative paths are
+resolved from the directory containing that file.
 
-- `run` controls whether visibilities are simulated and whether existing files
-  are replaced.
-- `output_directory` sets where generated products are written.
-- `telescope` defines the antenna layout, location, beam and redundancy
-  threshold.
-- `time` defines the observation start, end and integration time.
-- `frequency` defines the first channel, channel width and number of channels.
-- `sky` defines the HEALPix resolution, sky-mask mode and settings for each sky
-  component.
+### Run and output
+
+- `run.simulate_visibilities` controls whether the workflow stops after making
+  the sky models or also runs `pyuvsim`.
+- `run.overwrite_existing_files` replaces existing sky, observation and
+  visibility files when `true`. When changing an observation, use a new
+  `output_directory` or enable this option; otherwise matching filenames are
+  deliberately kept.
+- `output_directory` is the root for all generated products.
+
+### Telescope and antenna layout
+
+- `telescope.name` is written into the generated telescope metadata.
+- `telescope.antenna_layout` points to a `pyuvsim` antenna-layout file. Any
+  number or arrangement of antennas can be used.
+- `latitude_deg`, `longitude_deg` and `altitude_m` set the array location. The
+  location affects both the `pyuvsim` observation and the zenith-centred sky
+  mask, so changing it requires regenerating the sky models.
+- `beam.type` selects the `pyuvsim` analytic beam. The supplied configuration
+  uses `airy`; `beam.diameter_m` is its aperture diameter in metres. The current
+  workflow assigns this one beam to every antenna.
+- `redundant_threshold_m` is the positional tolerance passed to `pyuvsim` when
+  identifying redundant baselines.
+
+The antenna layout is a whitespace-separated table with one row per antenna:
+
+```text
+Name   Number   BeamID   E      N      U
+ANT0   0        0        0.0    0.0    0.0
+ANT1   1        0        14.6   0.0    0.0
+ANT2   2        0        0.0    14.6   0.0
+```
+
+`Name` and `Number` must identify each antenna uniquely. `E`, `N` and `U` are
+positions in metres relative to the array centre. Use `BeamID` 0 for every
+antenna because this workflow currently creates one shared beam definition.
+`default_configs/hex-37-14.6m.csv` is a complete example.
+
+### Time and frequency
+
+- `time.start_jd` and `time.end_jd` are the first and last integration times in
+  Julian days.
+- `time.integration_time_s` is the integration length in seconds. It also sets
+  the time sampling used by the `union` sky mask.
+- `frequency.start_hz` is the first channel frequency, while
+  `channel_width_hz` is the channel spacing and `n_channels` is the total
+  number of channels. These values define both the generated sky spectra and
+  the visibility simulation.
+
+### Sky models
+
+- `sky.nside` is the HEALPix NSIDE used for the EoR and GSM maps. Increasing it
+  increases angular resolution, memory use and runtime.
+- `sky.sky_mask_time_mode` is either `center` or `union`, as described below.
+- Each component's `fovs_deg` is a list, so multiple fields of view can be
+  generated in one run and the three components do not need identical lists.
+- `sky.eor.rms_k` is the Gaussian RMS in kelvin before each full-sky frequency
+  slice is shifted to zero mean. `random_seed` makes the realization
+  repeatable.
+- `sky.gsm.include_cmb` is passed to GSM2008. `frequency_chunk_size` controls
+  how many channels are evaluated together; it changes memory use, not the sky
+  model.
+- `sky.gleam_ateam.a_team_catalogue` is the fixed bright-source catalogue. Its
+  columns are `name`, `ra`, `dec`, `stokes_i_jy`, `reference_frequency_hz` and
+  `spectral_index`; `default_configs/a_team.csv` is the supplied example.
+- `sky.gleam_ateam.random_seed` makes the statistical faint-source catalogue
+  repeatable. `confusion_nside` sets the HEALPix scale used to determine its
+  confusion flux limit, and `reference_frequency_hz` is the reference
+  frequency assigned to those generated sources.
 
 Fields of view are full angular diameters around zenith. For example, a
 30-degree field of view includes sky positions within 15 degrees of zenith.
@@ -68,17 +129,6 @@ applied:
 
 Use a new output directory or enable overwriting when changing the mask mode,
 because both modes use the same filenames.
-
-The three component sections provide their own useful controls:
-
-- `sky.eor` sets the fields of view, RMS and random seed for the EoR-like sky.
-- `sky.gsm` sets the fields of view, whether to include the CMB and the
-  frequency chunk size used while evaluating GSM2008.
-- `sky.gleam_ateam` sets the fields of view, A-team catalogue, random seed,
-  confusion resolution and reference frequency for the point-source sky.
-
-Relative paths in the example are resolved from the directory containing
-`example_config.yaml`.
 
 ## What is generated
 
